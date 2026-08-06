@@ -55,6 +55,9 @@ def create_user_account(username: str, email: str, password: str) -> Dict[str, A
     if not username or not email or not password:
         return {"success": False, "message": "Username, Email and Password are required."}
     
+    if len(password) < 8:
+        return {"success": False, "message": "Password must be at least 8 characters long."}
+    
     # 1. Register user via Supabase Auth API
     try:
         client.auth.sign_up({
@@ -144,6 +147,33 @@ def authenticate_user(email_or_username: str, password: str) -> Dict[str, Any]:
         if "PGRST205" in err_str or "users" in err_str.lower():
             return {"success": False, "message": "Users table missing. Please run schema.sql in Supabase SQL editor.", "user": None}
         return {"success": False, "message": f"Login failed: {e}", "user": None}
+
+def reset_user_password(email: str, new_password: str) -> Dict[str, Any]:
+    """Reset user password for a given email address."""
+    client = get_supabase_client()
+    if not client:
+        return {"success": False, "message": "Database not connected."}
+    
+    email = email.strip().lower()
+    if not email or "@" not in email:
+        return {"success": False, "message": "Please enter a valid email address."}
+        
+    if not new_password or len(new_password) < 4:
+        return {"success": False, "message": "New password must be at least 4 characters long."}
+        
+    pwd_hash = hash_password(new_password)
+    
+    try:
+        res = client.table("users").update({"password_hash": pwd_hash}).eq("email", email).execute()
+        if res.data:
+            return {"success": True, "message": "Password reset successfully! You can now sign in."}
+        else:
+            return {"success": False, "message": "No account found registered with this email."}
+    except Exception as e:
+        err_str = str(e)
+        if "PGRST205" in err_str or "users" in err_str.lower():
+            return {"success": False, "message": "Users table missing. Please run schema.sql in Supabase SQL editor."}
+        return {"success": False, "message": f"Password reset failed: {e}"}
 
 # ==========================================
 # FOOD MASTER CRUD OPERATIONS

@@ -80,6 +80,66 @@ st.markdown("""
         border-radius: 8px;
         font-weight: 600;
         transition: all 0.2s ease-in-out;
+        /* Custom Thick Scrollbar (Item 1) */
+    ::-webkit-scrollbar {
+        width: 14px !important;
+        height: 14px !important;
+    }
+    ::-webkit-scrollbar-track {
+        background: #090D16 !important;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #334155 !important;
+        border-radius: 7px !important;
+        border: 2px solid #090D16 !important;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: #475569 !important;
+    }
+
+    /* Page top padding reduction to align top-right profile button (Item 2) */
+    .main .block-container {
+        padding-top: 1.2rem !important;
+        padding-bottom: 2rem !important;
+    }
+
+    /* Top Right Sign In / User Profile Pill Button (Item 2) */
+    button[key="btn_top_signin"] {
+        background: linear-gradient(135deg, #2563EB 0%, #3B82F6 100%) !important;
+        color: #FFFFFF !important;
+        font-weight: 700 !important;
+        font-size: 0.92rem !important;
+        border-radius: 20px !important;
+        padding: 6px 18px !important;
+        border: none !important;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4) !important;
+        transition: all 0.25s ease-in-out !important;
+        float: right !important;
+        margin-top: -5px !important;
+    }
+
+    button[key="btn_top_signin"]:hover {
+        background: linear-gradient(135deg, #1D4ED8 0%, #2563EB 100%) !important;
+        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.6) !important;
+        transform: translateY(-1px) !important;
+    }
+    
+    button[key="btn_top_user_profile"] {
+        background: #1E293B !important;
+        color: #10B981 !important;
+        border: 1px solid #334155 !important;
+        font-weight: 700 !important;
+        font-size: 0.92rem !important;
+        border-radius: 20px !important;
+        padding: 6px 18px !important;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2) !important;
+        float: right !important;
+        margin-top: -5px !important;
+    }
+    
+    button[key="btn_top_user_profile"]:hover {
+        border-color: #10B981 !important;
+        background: #334155 !important;
     }
     
     /* Database Warning Banner */
@@ -96,6 +156,10 @@ st.markdown("""
         background-color: #0D1322 !important;
         border-right: 1px solid #1E293B !important;
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    
+    section[data-testid="stSidebar"] > div:first-child {
+        padding-top: 1.2rem !important;
     }
 
     /* COLLAPSED MINI RAIL OVERRIDE (Image 2 style) */
@@ -164,7 +228,12 @@ st.markdown("""
         color: #0D1322 !important;
         font-weight: 700 !important;
         border-color: #FFFFFF !important;
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25) !important;
+        box-shadow: 0 4px 14px rgba(255, 255, 255, 0.15) !important;
+    }
+
+    /* Force text/svg color inside primary active button to stay dark */
+    div[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-primary"] * {
+        color: #0D1322 !important;
     }
 
     div[data-testid="stSidebar"] div.stButton > button[data-testid="stBaseButton-primary"]:hover {
@@ -197,6 +266,30 @@ st.markdown("""
         font-size: 1.25rem !important;
         white-space: nowrap !important;
     }
+    
+    /* Absolute Bottom Docking for Sidebar User Profile Card Container (Item 4) */
+    section[data-testid="stSidebar"] {
+        position: relative !important;
+        height: 100vh !important;
+    }
+
+    div[data-testid="stSidebar"] div.stElementContainer:has(div.sidebar-bottom-profile-wrapper),
+    div.sidebar-bottom-profile-wrapper {
+        position: absolute !important;
+        bottom: 15px !important;
+        left: 14px !important;
+        right: 14px !important;
+        width: calc(100% - 28px) !important;
+        z-index: 9999 !important;
+    }
+
+    /* Collapsed sidebar mini rail bottom docking */
+    section[data-testid="stSidebar"][aria-expanded="false"] div.stElementContainer:has(div.sidebar-bottom-profile-wrapper),
+    section[data-testid="stSidebar"][aria-expanded="false"] div.sidebar-bottom-profile-wrapper {
+        left: 14px !important;
+        right: 14px !important;
+        width: 50px !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -215,12 +308,21 @@ EXERCISE_MET_CALORIES_PER_MIN = {
     "Basketball / Football": 9.0
 }
 
-# Initialize session state page navigation & user authentication
+# Initialize session state page navigation, auth mode & user authentication
 if "current_page" not in st.session_state:
     st.session_state["current_page"] = "Daily Logger"
 
 if "user" not in st.session_state:
     st.session_state["user"] = None
+
+if "auth_mode" not in st.session_state:
+    st.session_state["auth_mode"] = "login"
+
+if "show_auth_dialog" not in st.session_state:
+    st.session_state["show_auth_dialog"] = False
+
+if "show_user_dialog" not in st.session_state:
+    st.session_state["show_user_dialog"] = False
 
 page = st.session_state["current_page"]
 current_user = st.session_state["user"]
@@ -228,19 +330,164 @@ current_user = st.session_state["user"]
 # Ensure Supabase database connection status check
 db_ready = db.is_db_connected()
 
+import re
+
+def validate_password_rules(password: str) -> tuple[bool, str]:
+    """Validate password according to standard security rules."""
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long."
+    if not re.search(r"[A-Za-z]", password):
+        return False, "Password must contain at least one letter (a-z or A-Z)."
+    if not re.search(r"[0-9!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", password):
+        return False, "Password must contain at least one number or special character."
+    return True, ""
+
+# ==============================================================================
+# AUTHENTICATION DIALOG MODALS (@st.dialog)
+# ==============================================================================
+
+@st.dialog("🔐 CalorieCraft Account")
+def show_auth_modal():
+    mode = st.session_state.get("auth_mode", "login")
+    
+    # ---------- VIEW 1: SIGN IN / LOGIN ----------
+    if mode == "login":
+        st.markdown("<h3 style='color: #F8FAFC; margin-bottom: 5px;'>🔑 Sign In</h3>", unsafe_allow_html=True)
+        st.caption("Enter your Username or Email ID and Password to sign in.")
+        
+        login_id = st.text_input("Username or Email ID", key="dlg_login_id_input", placeholder="e.g. username or user@gmail.com")
+        login_pwd = st.text_input("Password", type="password", key="dlg_login_pwd_input", placeholder="Enter your password")
+        
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        if st.button("🔑 Sign In", key="dlg_btn_signin_submit", use_container_width=True, type="primary"):
+            if not login_id.strip() or not login_pwd.strip():
+                st.error("Please enter Username/Email and Password.")
+            else:
+                res = db.authenticate_user(login_id, login_pwd)
+                if res["success"]:
+                    st.session_state["user"] = res["user"]
+                    st.session_state["show_auth_dialog"] = False
+                    st.toast(res["message"], icon="🔑")
+                    st.rerun()
+                else:
+                    st.error(res["message"])
+                    
+        st.markdown("<hr style='border: 0; border-top: 1px solid #334155; margin: 18px 0;'>", unsafe_allow_html=True)
+        
+        col_f, col_s = st.columns([1, 1])
+        with col_f:
+            if st.button("❓ Forgot Password?", key="btn_switch_forgot", use_container_width=True):
+                st.session_state["auth_mode"] = "forgot"
+                st.session_state["show_auth_dialog"] = True
+                st.rerun()
+        with col_s:
+            if st.button("✨ Create Account", key="btn_switch_signup", use_container_width=True):
+                st.session_state["auth_mode"] = "signup"
+                st.session_state["show_auth_dialog"] = True
+                st.rerun()
+
+    # ---------- VIEW 2: CREATE NEW ACCOUNT / SIGN UP ----------
+    elif mode == "signup":
+        st.markdown("<h3 style='color: #F8FAFC; margin-bottom: 5px;'>✨ Create New Account</h3>", unsafe_allow_html=True)
+        st.caption("Fill in your details below to create your account.")
+        
+        reg_uname = st.text_input("Username", key="dlg_reg_uname_input", placeholder="Choose a unique username")
+        st.markdown("<p style='color: #64748B; font-size: 0.78rem; margin-top: -12px; margin-bottom: 12px;'>💡 Example: jondoe or alex99</p>", unsafe_allow_html=True)
+        
+        reg_email = st.text_input("Email ID / Gmail", key="dlg_reg_email_input", placeholder="user@gmail.com")
+        st.markdown("<p style='color: #64748B; font-size: 0.78rem; margin-top: -12px; margin-bottom: 12px;'>💡 Your registered email address</p>", unsafe_allow_html=True)
+        
+        reg_pwd = st.text_input("Password", type="password", key="dlg_reg_pwd_input", placeholder="Min 8 chars (letters & numbers)")
+        st.markdown("<p style='color: #94A3B8; font-size: 0.78rem; margin-top: -12px; margin-bottom: 12px;'>🔒 Must be at least 8 characters with letters and numbers/symbols.</p>", unsafe_allow_html=True)
+        
+        reg_confirm = st.text_input("Confirm Password", type="password", key="dlg_reg_confirm_input", placeholder="Re-enter your password")
+        st.markdown("<p style='color: #64748B; font-size: 0.78rem; margin-top: -12px; margin-bottom: 14px;'>💡 Must match the password entered above.</p>", unsafe_allow_html=True)
+        
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        if st.button("✨ Create Account", key="dlg_btn_signup_submit", use_container_width=True, type="primary"):
+            pwd_valid, pwd_err = validate_password_rules(reg_pwd)
+            if not reg_uname.strip() or not reg_email.strip() or not reg_pwd.strip():
+                st.error("Please fill in Username, Email ID, and Password.")
+            elif "@" not in reg_email or "." not in reg_email:
+                st.error("Please enter a valid Email ID / Gmail address.")
+            elif reg_pwd != reg_confirm:
+                st.error("Passwords do not match! Please re-type Confirm Password.")
+            elif not pwd_valid:
+                st.error(f"Password requirement: {pwd_err}")
+            else:
+                res = db.create_user_account(reg_uname, reg_email, reg_pwd)
+                if res["success"]:
+                    st.session_state["user"] = res["user"]
+                    st.session_state["show_auth_dialog"] = False
+                    st.toast(res["message"], icon="🎉")
+                    st.rerun()
+                else:
+                    st.error(res["message"])
+                    
+        st.markdown("<hr style='border: 0; border-top: 1px solid #334155; margin: 18px 0;'>", unsafe_allow_html=True)
+        if st.button("‹ Already have an account? Sign In", key="btn_switch_login_from_signup", use_container_width=True):
+            st.session_state["auth_mode"] = "login"
+            st.session_state["show_auth_dialog"] = True
+            st.rerun()
+
+    # ---------- VIEW 3: FORGOT PASSWORD RESET ----------
+    elif mode == "forgot":
+        st.markdown("<h3 style='color: #F8FAFC; margin-bottom: 5px;'>🔑 Reset Password</h3>", unsafe_allow_html=True)
+        st.caption("Enter your registered Email ID and new password.")
+        
+        reset_email = st.text_input("Registered Email ID / Gmail", key="dlg_reset_email_input", placeholder="user@gmail.com")
+        st.markdown("<p style='color: #64748B; font-size: 0.78rem; margin-top: -12px; margin-bottom: 12px;'>💡 Enter the email linked to your account</p>", unsafe_allow_html=True)
+        
+        new_pwd = st.text_input("New Password", type="password", key="dlg_reset_pwd_input", placeholder="Min 8 chars (letters & numbers)")
+        st.markdown("<p style='color: #94A3B8; font-size: 0.78rem; margin-top: -12px; margin-bottom: 14px;'>🔒 Minimum 8 characters with at least 1 letter and 1 number/symbol.</p>", unsafe_allow_html=True)
+        
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        if st.button("📩 Reset Password", key="dlg_btn_reset_submit", use_container_width=True, type="primary"):
+            pwd_valid, pwd_err = validate_password_rules(new_pwd)
+            if not pwd_valid:
+                st.error(f"Password requirement: {pwd_err}")
+            else:
+                res = db.reset_user_password(reset_email, new_pwd)
+                if res["success"]:
+                    st.toast(res["message"], icon="✅")
+                    st.session_state["auth_mode"] = "login"
+                    st.session_state["show_auth_dialog"] = True
+                    st.rerun()
+                else:
+                    st.error(res["message"])
+                
+        st.markdown("<hr style='border: 0; border-top: 1px solid #334155; margin: 18px 0;'>", unsafe_allow_html=True)
+        if st.button("‹ Back to Sign In", key="btn_switch_login_from_forgot", use_container_width=True):
+            st.session_state["auth_mode"] = "login"
+            st.session_state["show_auth_dialog"] = True
+            st.rerun()
+
+@st.dialog("👤 User Profile & Account")
+def show_user_modal():
+    if current_user:
+        st.markdown(f"### Hello, **{current_user['username']}**!")
+        st.write(f"- **Username:** `{current_user['username']}`")
+        st.write(f"- **Email ID:** `{current_user['email']}`")
+        st.write(f"- **Status:** `● Database Connected`")
+        
+        st.markdown("<hr style='border: 0; border-top: 1px solid #334155; margin: 20px 0;'>", unsafe_allow_html=True)
+        if st.button("🚪 Sign Out Account", key="dlg_btn_signout", use_container_width=True, type="primary"):
+            st.session_state["user"] = None
+            st.session_state["show_user_dialog"] = False
+            st.toast("Signed out successfully!", icon="👋")
+            st.rerun()
+
 # Sidebar Navigation Header & Menu (Pure Buttons driven by session state)
 with st.sidebar:
-    # 1. Brand Logo Header
+    # 1. Brand Logo Header (Centered & Positioned at Top - Item 3)
     st.markdown("""
-        <div style='display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; padding: 4px 0;'>
-            <div style='display: flex; align-items: center; gap: 12px; margin: 0 auto;'>
-                <div style='background: linear-gradient(135deg, #6366F1, #8B5CF6); border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: #FFFFFF; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35); flex-shrink: 0;'>
-                    🥗
-                </div>
-                <div class='sidebar-text-expand'>
-                    <h3 style='color: #F8FAFC; font-weight: 800; margin: 0; font-size: 1.15rem; line-height: 1.2;'>CalorieCraft</h3>
-                    <p style='color: #64748B; font-size: 0.76rem; margin: 0; font-weight: 500;'>Nutrition & Fitness</p>
-                </div>
+        <div style='display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; margin-top: -15px; margin-bottom: 18px; padding: 4px 0;'>
+            <div style='background: linear-gradient(135deg, #6366F1, #8B5CF6); border-radius: 50%; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; color: #FFFFFF; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35); margin-bottom: 6px;'>
+                🥗
+            </div>
+            <div class='sidebar-text-expand'>
+                <h3 style='color: #F8FAFC; font-weight: 800; margin: 0; font-size: 1.2rem; line-height: 1.2;'>CalorieCraft</h3>
+                <p style='color: #64748B; font-size: 0.76rem; margin: 2px 0 0 0; font-weight: 500;'>Nutrition & Fitness</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -264,78 +511,28 @@ with st.sidebar:
             st.session_state["current_page"] = key_val
             st.rerun()
     
-    st.markdown("<hr style='border: 0; border-top: 1px solid #1E293B; margin: 20px 0;'>", unsafe_allow_html=True)
-    
-    # 3. User Authentication / Profile Section
+    # 3. User Authentication / Profile Section Docked at Bottom of Sidebar (Item 4)
     user_initials = (current_user["username"][:2].upper()) if current_user and current_user.get("username") else "CU"
     display_name = current_user["username"] if current_user else "Guest User"
     display_email = current_user["email"] if current_user else ("● Connected" if db_ready else "○ Disconnected")
     
     st.markdown(f"""
-        <div style='background: #FFFFFF; border-radius: 12px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);'>
-            <div style='background: linear-gradient(135deg, #10B981, #059669); color: #F8FAFC; font-weight: 800; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0; margin: 0 auto;'>
-                {user_initials}
-            </div>
-            <div class='sidebar-profile-info' style='flex: 1; overflow: hidden;'>
-                <p style='color: #0B1120; font-weight: 800; font-size: 0.86rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>{display_name}</p>
-                <p style='color: {"#10B981" if current_user or db_ready else "#EF4444"}; font-size: 0.74rem; margin: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>
-                    {display_email}
-                </p>
+        <div class='sidebar-bottom-profile-wrapper'>
+            <hr style='border: 0; border-top: 1px solid #1E293B; margin-bottom: 12px;'>
+            <div style='background: #FFFFFF; border-radius: 12px; padding: 10px 12px; display: flex; align-items: center; gap: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);'>
+                <div style='background: linear-gradient(135deg, #10B981, #059669); color: #F8FAFC; font-weight: 800; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; flex-shrink: 0; margin: 0 auto;'>
+                    {user_initials}
+                </div>
+                <div class='sidebar-profile-info' style='flex: 1; overflow: hidden;'>
+                    <p style='color: #0B1120; font-weight: 800; font-size: 0.86rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>{display_name}</p>
+                    <p style='color: {"#10B981" if current_user or db_ready else "#EF4444"}; font-size: 0.74rem; margin: 0; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>
+                        {display_email}
+                    </p>
+                </div>
             </div>
         </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-    
-    # User Account Expander / Modal
-    if current_user:
-        if st.button("🚪 Logout Account", key="btn_logout", use_container_width=True):
-            st.session_state["user"] = None
-            st.toast("Logged out successfully!", icon="👋")
-            st.rerun()
-    else:
-        with st.expander("👤 User Account / Sign In", expanded=False):
-            tab_signup, tab_login = st.tabs(["✨ Create Account", "🔑 Login"])
-            
-            with tab_signup:
-                st.caption("Register a new CalorieCraft Account")
-                new_uname = st.text_input("Username", key="reg_uname_input")
-                new_email = st.text_input("Email ID", key="reg_email_input")
-                new_pwd = st.text_input("Password", type="password", key="reg_pwd_input")
-                
-                if st.button("✨ Create Account", key="btn_do_register", use_container_width=True, type="primary"):
-                    if not new_uname.strip() or not new_email.strip() or not new_pwd.strip():
-                        st.error("Please fill in Username, Email, and Password.")
-                    elif "@" not in new_email:
-                        st.error("Please enter a valid Email ID.")
-                    elif len(new_pwd) < 4:
-                        st.error("Password must be at least 4 characters long.")
-                    else:
-                        reg_res = db.create_user_account(new_uname, new_email, new_pwd)
-                        if reg_res["success"]:
-                            st.session_state["user"] = reg_res["user"]
-                            st.toast(reg_res["message"], icon="🎉")
-                            st.rerun()
-                        else:
-                            st.error(reg_res["message"])
-                            
-            with tab_login:
-                st.caption("Log in to your account")
-                login_id = st.text_input("Username or Email", key="login_id_input")
-                login_pwd = st.text_input("Password", type="password", key="login_pwd_input")
-                
-                if st.button("🔑 Sign In", key="btn_do_login", use_container_width=True, type="primary"):
-                    if not login_id.strip() or not login_pwd.strip():
-                        st.error("Please enter Username/Email and Password.")
-                    else:
-                        login_res = db.authenticate_user(login_id, login_pwd)
-                        if login_res["success"]:
-                            st.session_state["user"] = login_res["user"]
-                            st.toast(login_res["message"], icon="🔑")
-                            st.rerun()
-                        else:
-                            st.error(login_res["message"])
-                            
     if not db_ready:
         st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
         st.error("⚠️ Supabase Credentials Not Configured")
@@ -343,9 +540,30 @@ with st.sidebar:
         with st.expander("🛠️ View Database Setup Script"):
             st.code(open("schema.sql").read() if True else "", language="sql")
 
-# Main Header Display
-st.markdown("<h1 class='app-header'>🥗 CalorieCraft Tracker</h1>", unsafe_allow_html=True)
-st.markdown("<div class='app-subtitle'>Track your macros, stay on top of workouts, and monitor weight goals with Supabase.</div>", unsafe_allow_html=True)
+# Main Header Display with Top-Right Blue Sign In Button Aligned Up (Item 2)
+hdr_col1, hdr_col2 = st.columns([3.6, 1.2], vertical_alignment="top")
+
+with hdr_col1:
+    st.markdown("<h1 class='app-header' style='margin-top: -8px;'>🥗 CalorieCraft Tracker</h1>", unsafe_allow_html=True)
+    st.markdown("<div class='app-subtitle'>Track your macros, stay on top of workouts, and monitor weight goals with Supabase.</div>", unsafe_allow_html=True)
+
+with hdr_col2:
+    if current_user is None:
+        if st.button("🔑   Sign In", key="btn_top_signin", type="primary"):
+            st.session_state["auth_mode"] = "login"
+            st.session_state["show_auth_dialog"] = True
+            st.rerun()
+    else:
+        if st.button(f"👤   {current_user['username']}", key="btn_top_user_profile"):
+            st.session_state["show_user_dialog"] = True
+            st.rerun()
+
+# Render dialog modals if triggered
+if st.session_state.get("show_auth_dialog", False):
+    show_auth_modal()
+
+if st.session_state.get("show_user_dialog", False):
+    show_user_modal()
 
 if not db_ready:
     st.markdown("""
